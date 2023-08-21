@@ -60,23 +60,21 @@ struct SwipeCarousel<Content: View,ID,Item>: View where Item: RandomAccessCollec
     @State var offset: CGFloat = 0
     @State var showRight: Bool = false
     @State var currentIndex: Int = 0
-    
+    @State var isRotate = false
     var body: some View{
         GeometryReader{
             let size = $0.size
-            
-            ZStack{
+            ZStack {
                 // No Need to Use .reversed()
                 // Instead Use ZIndex
                 ForEach(items){item in
                     CardView(item: item, size: size)
-                        // MARK: If User Starts Swipe Right
-                        // Then We're going to Showing The Last Swiped Card as a Overlay
+                    // MARK: If User Starts Swipe Right
+                    // Then We're going to Showing The Last Swiped Card as a Overlay
                         .overlay(content: {
                             let index = indexOf(item: item)
                             if (currentIndex + 1) == index && Array(items).indices.contains(currentIndex - 1) && showRight{
                                 CardView(item: Array(items)[currentIndex - 1], size: size)
-                                    .transition(.identity)
                             }
                         })
                         .zIndex(zIndexFor(item: item))
@@ -86,8 +84,12 @@ struct SwipeCarousel<Content: View,ID,Item>: View where Item: RandomAccessCollec
             .gesture(
                 DragGesture()
                     .onChanged({ value in
-                        showRight = (value.translation.width > 0)
-                        offset = (value.translation.width / (size.width + 30)) * size.width
+                        withAnimation(.easeIn(duration: 0.25)) {
+                            showRight = (value.translation.width > 0)
+                            self.isRotate = true
+                            offset = (value.translation.width / (size.width + 30)) * size.width
+                        }
+                        
                     })
                     .onEnded({ value in
                         let translation = value.translation.width
@@ -95,46 +97,49 @@ struct SwipeCarousel<Content: View,ID,Item>: View where Item: RandomAccessCollec
                         if translation > 0{
                             // MARK: Swipe Right
                             decreaseIndex(translation: translation)
-                        }else{
+                        } else {
                             // MARK: Swipe Left
                             increaseIndex(translation: translation)
                         }
                         
-                        withAnimation(.easeInOut(duration: 0.25)){
+                        withAnimation(.interpolatingSpring(stiffness: 50, damping: 10)){
                             offset = .zero
+                            self.isRotate = false
                         }
                     })
             )
         }
+        
     }
     
     @ViewBuilder
     func CardView(item: Item.Element,size: CGSize)->some View{
         let index = indexOf(item: item)
         content(item,size)
-            // MARK: Shadow
+        // MARK: Shadow
             .shadow(color: .black.opacity(0.25), radius: 5, x: 5, y: 5)
             .scaleEffect(scaleFor(item: item))
             .offset(x: offsetFor(item: item))
-            .rotationEffect(.init(degrees: rotationFor(item: item)), anchor: currentIndex > index ? .topLeading : .topTrailing)
-            // MARK: Only Adding Gesture Value To the CurrentCard
+            .rotationEffect(.init(degrees: rotationFor(item: item)), anchor: .center)
+        // MARK: Only Adding Gesture Value To the CurrentCard
             .offset(x: currentIndex == index ? offset : 0)
             .rotationEffect(.init(degrees: rotationForGesture(index: index)), anchor: .top)
-            .scaleEffect(scaleForGesture(index: index))
+        // MARK: Consider removing the scale because the user's hand might deviate from the touch point when scaling
+        // .scaleEffect(scaleForGesture(index: index))
     }
     
     // MARK: Swapping Cards
     func increaseIndex(translation: CGFloat){
         if translation < 0 && -translation > 110 && currentIndex < (items.count - 1){
-            withAnimation(.easeInOut(duration: 0.25)){
+            withAnimation {
                 currentIndex += 1
             }
         }
     }
     
-    func decreaseIndex(translation: CGFloat){
+    func decreaseIndex(translation: CGFloat) {
         if translation > 0 && translation > 110 && currentIndex > 0{
-            withAnimation(.easeInOut(duration: 0.25)){
+            withAnimation {
                 currentIndex -= 1
             }
         }else{
@@ -145,13 +150,13 @@ struct SwipeCarousel<Content: View,ID,Item>: View where Item: RandomAccessCollec
     }
     
     // MARK: Gesture Based Rotation And Scaling Values
-    func rotationForGesture(index: Int)->CGFloat{
+    func rotationForGesture(index: Int) -> CGFloat{
         // CHANGE WITH YOUR OWN VALUES HERE
         let progress = (offset / screenSize.width) * 30
         return (currentIndex == index ? progress : 0)
     }
     
-    func scaleForGesture(index: Int)->CGFloat{
+    func scaleForGesture(index: Int) -> CGFloat{
         // To avoid Over Sizing when it goes to Negative
         let progress = 1 - ((offset > 0 ? offset : -offset) / screenSize.width)
         return (currentIndex == index ? (progress > 0.75 ? progress : 0.75) : 1)
@@ -193,20 +198,20 @@ struct SwipeCarousel<Content: View,ID,Item>: View where Item: RandomAccessCollec
         return 1 + (CGFloat(index) / 20)
     }
     
-    func rotationFor(item: Item.Element)->CGFloat{
+    func rotationFor(item: Item.Element) -> CGFloat{
         let index = indexOf(item: item) - currentIndex
         if index > 0{
             if index > trailingCards{
-                return CGFloat(trailingCards) * 3
+                return CGFloat(trailingCards) * (self.isRotate ? 15 : 7)
             }
             // MARK: For Each Card I'm going to Rotate 3deg (It's Your Own Custom Value)
-            return CGFloat(index) * 3
+            return CGFloat(index) * (self.isRotate ? 15 : 7)
         }
-        if -index > trailingCards{
-            return -CGFloat(trailingCards) * 3
+        if -index > trailingCards {
+            return -CGFloat(trailingCards) * (self.isRotate ? 15 : 7)
         }
         // MARK: For Each Card I'm going to Rotate 3deg (It's Your Own Custom Value)
-        return CGFloat(index) * 3
+        return CGFloat(index) * (self.isRotate ? 15 : 7)
     }
     
     // MARK: ZIndex Value For Each Card
@@ -219,19 +224,14 @@ struct SwipeCarousel<Content: View,ID,Item>: View where Item: RandomAccessCollec
     }
     
     // MARK: Index For Each Card
-    func indexOf(item: Item.Element)->Int{
-        let arrayItems = Array(items)
-        if let index = arrayItems.firstIndex(of: item){
-            return index
-        }
-        return 0
+    // MARK: Should update with default value
+    func indexOf(item: Item.Element) -> Int{
+        return items.firstIndex(of: item) as? Int ?? 0
     }
     
     // MARK: Current iPhone Screen Size
+    // MARK: Should update with the default value
     var screenSize: CGSize = {
-        guard let window = UIApplication.shared.connectedScenes.first as? UIWindowScene else{
-            return .zero
-        }
-        return window.screen.bounds.size
+        return (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds.size ?? .zero
     }()
 }
